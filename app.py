@@ -1,3 +1,4 @@
+# ✅ Nebula v1 Stable Version
 import streamlit as st
 from textblob import TextBlob
 import random
