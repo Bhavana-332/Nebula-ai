@@ -124,7 +124,7 @@ mark{
     unsafe_allow_html=True,
 )
 
-# ---------------- NLP UTILITIES ----------------
+# ---------------- NLP + UTILS ----------------
 STOPWORDS = {
     "a","an","the","and","or","but","if","then","else","for","to","of","in","on","at","by","with","from",
     "is","am","are","was","were","be","been","being","this","that","these","those","it","its","i","you",
@@ -188,11 +188,21 @@ def jaccard(a_tokens, b_tokens):
         return 0.0
     return len(A & B) / max(1, len(A | B))
 
+def parse_time(ts: str):
+    # supports ISO; if parse fails returns None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+def safe_now():
+    return datetime.now()
+
 # ---------------- SIDEBAR CONTROLS ----------------
 with st.sidebar:
     st.markdown("## 🛰️ Nebula Controls")
     mode = st.selectbox("Mode", ["Demo (Mock Stream)", "Manual Input"], index=0)
-    auto_refresh = st.toggle("Auto-refresh feed (demo)", value=True)
+    auto_refresh = st.toggle("Auto-refresh feed (demo)", value=False)
 
     st.markdown("---")
     st.markdown("### 📄 CSV Upload (optional)")
@@ -207,19 +217,23 @@ with st.sidebar:
     sentiment_filter = st.selectbox("Show", ["All", "Positive", "Neutral", "Negative"], index=0)
 
     st.markdown("---")
-    st.markdown("### 🧩 Detection knobs (demo)")
+    st.markdown("### 🧩 Detection knobs")
     spike_sensitivity = st.slider("Spike sensitivity", 1, 10, 6)
     similarity_threshold = st.slider("Coordination similarity threshold", 0.30, 0.90, 0.55, 0.05)
-    min_cluster_size = st.slider("Minimum cluster size", 2, 10, 3)
+    min_cluster_size = st.slider("Minimum cluster size", 2, 12, 3)
+
+    st.markdown("---")
+    st.markdown("### ⏱ Timeline")
+    bucket_minutes = st.selectbox("Bucket size (minutes)", [5, 10, 15, 30], index=1)
 
 # ---------------- HEADER ----------------
 st.markdown(
     """
 <div class="hero">
-  <div class="pill">Nebula v4</div>
-  <div class="pill">Bot-score + Coordination Clusters</div>
+  <div class="pill">Nebula v5</div>
+  <div class="pill">Timeline + Auto Report + Response Actions</div>
   <div class="big-title">Nebula — Sentiment & Disinformation Tracker</div>
-  <div class="subtitle">Sentiment + risky terms + suspicious coordination (demo logic)</div>
+  <div class="subtitle">Sentiment + risky terms + coordination + campaign timeline (demo logic)</div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -227,7 +241,7 @@ st.markdown(
 
 topic = st.text_input("🔎 Enter Brand / Person / Topic", value="", placeholder="Example: iPhone, Tesla, Elections...")
 
-# ---------------- BUILD FEED (CSV > MANUAL > DEMO) ----------------
+# ---------------- BUILD RECORDS (CSV > MANUAL > DEMO) ----------------
 records = []
 
 # CSV priority
@@ -255,11 +269,11 @@ if uploaded is not None:
 if (not records) and mode == "Manual Input":
     raw = st.text_area(
         "✍️ Paste posts (one post per line)",
-        height=160,
+        height=170,
         placeholder="Example:\nI love this product\nWorst service ever\nNot bad but expensive",
     )
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
-    now = datetime.now()
+    now = safe_now()
     for i, t in enumerate(lines):
         records.append({
             "text": t,
@@ -290,13 +304,13 @@ if (not records) and mode == "Demo (Mock Stream)":
     random.seed(99 + len(t))
     random.shuffle(demo_texts)
 
-    now = datetime.now()
+    now = safe_now()
     demo_users = [f"user_{random.randint(10, 999)}" for _ in range(len(demo_texts))]
     demo_platforms = [random.choice(["X/Twitter", "Reddit", "News", "Instagram"]) for _ in range(len(demo_texts))]
     for i, txt in enumerate(demo_texts):
-        # simulate bursts: some posts within seconds
+        # simulate bursts: some posts close together
         burst = random.choice([0, 0, 0, 20, 40, 90])
-        ts = (now - timedelta(seconds=(len(demo_texts)-i)*30 - burst)).isoformat(timespec="seconds")
+        ts = (now - timedelta(seconds=(len(demo_texts)-i)*60 - burst)).isoformat(timespec="seconds")
         records.append({"text": txt, "user": demo_users[i], "platform": demo_platforms[i], "timestamp": ts})
 
 # ---------------- ANALYSIS ----------------
@@ -324,6 +338,7 @@ for rec in records:
         "user": rec.get("user", "unknown"),
         "platform": rec.get("platform", "unknown"),
         "timestamp": rec.get("timestamp", ""),
+        "dt": parse_time(rec.get("timestamp", "")),
         "text": txt,
         "polarity": pol,
         "sentiment": label,
@@ -347,56 +362,42 @@ top_risky = risky_term_counts.most_common(8)
 top_risky_str = ", ".join([f"{w}({c})" for w, c in top_risky]) if top_risky else "None detected"
 
 # ---------------- BOT-SCORE (demo, privacy-friendly) ----------------
-# We only flag "suspicious behavior patterns" (repetition + burst + risky terms), not identity.
 user_posts = defaultdict(list)
 for r in rows:
     user_posts[r["user"]].append(r)
 
-# duplicates / near duplicates by normalized text
 norm_counts = Counter([r["norm"] for r in rows if r["norm"]])
 duplicate_norms = {k for k, v in norm_counts.items() if v >= 2}
-
-def parse_time(ts: str):
-    try:
-        return datetime.fromisoformat(ts)
-    except Exception:
-        return None
 
 def user_bot_score(u: str):
     posts = user_posts[u]
     if not posts:
         return 0
 
-    # repetition ratio
     norms = [p["norm"] for p in posts if p["norm"]]
     rep = sum(1 for n in norms if n in duplicate_norms)
     rep_ratio = rep / max(1, len(norms))
 
-    # risky term mentions
     risky_mentions = sum(0 if not p["risky_terms"] else len(p["risky_terms"].split(", ")) for p in posts)
 
-    # burstiness: very small time gaps (if timestamps exist)
-    times = [parse_time(p["timestamp"]) for p in posts]
-    times = [t for t in times if t is not None]
+    times = [p["dt"] for p in posts if p["dt"] is not None]
     times.sort()
     fast_gaps = 0
     for i in range(1, len(times)):
         gap = (times[i] - times[i-1]).total_seconds()
-        if gap <= 45:  # within 45 seconds
+        if gap <= 45:
             fast_gaps += 1
     burst_ratio = fast_gaps / max(1, len(times)-1)
 
-    # short/templated text signal (low unique tokens)
     uniq_tokens = set()
     total_tokens = 0
     for p in posts:
         toks = tokenize(p["text"])
         total_tokens += len(toks)
         uniq_tokens.update(toks)
-    diversity = (len(uniq_tokens) / max(1, total_tokens))  # lower => more templated
-    templated = 1.0 - min(1.0, diversity * 2)  # heuristic
+    diversity = (len(uniq_tokens) / max(1, total_tokens))
+    templated = 1.0 - min(1.0, diversity * 2)
 
-    # weighted score (0..100)
     score = (
         rep_ratio * 45 +
         burst_ratio * 25 +
@@ -405,14 +406,10 @@ def user_bot_score(u: str):
     )
     return int(max(0, min(100, score)))
 
-bot_scores = []
-for u in user_posts:
-    bot_scores.append((u, user_bot_score(u), len(user_posts[u])))
+bot_scores = [(u, user_bot_score(u), len(user_posts[u])) for u in user_posts]
 bot_scores.sort(key=lambda x: x[1], reverse=True)
 
-# ---------------- COORDINATION CLUSTERS (similar posts) ----------------
-# Simple clustering: connect posts if Jaccard similarity >= threshold (demo)
-# Works well enough for hackathon.
+# ---------------- COORDINATION CLUSTERS ----------------
 n = len(rows)
 visited = [False] * n
 clusters = []
@@ -420,10 +417,9 @@ clusters = []
 for i in range(n):
     if visited[i]:
         continue
-    # build cluster around i
     cluster = [i]
     visited[i] = True
-    for j in range(i+1, n):
+    for j in range(i + 1, n):
         if visited[j]:
             continue
         sim = jaccard(rows[i]["tokens"], rows[j]["tokens"])
@@ -433,13 +429,104 @@ for i in range(n):
     if len(cluster) >= min_cluster_size:
         clusters.append(cluster)
 
-# rank clusters by size + negativity
 def cluster_score(idx_list):
     size = len(idx_list)
     negs = sum(1 for k in idx_list if rows[k]["sentiment"] == "Negative")
     return (size, negs)
 
 clusters.sort(key=cluster_score, reverse=True)
+
+# ---------------- TIMELINE (spike detection) ----------------
+timeline_df = None
+spike_flags = []
+
+dts = [r["dt"] for r in rows if r["dt"] is not None]
+if dts:
+    df_t = pd.DataFrame([{
+        "dt": r["dt"],
+        "sentiment": r["sentiment"],
+        "neg": 1 if r["sentiment"] == "Negative" else 0,
+        "risk_hit": 1 if r["risky_terms"] else 0,
+    } for r in rows if r["dt"] is not None])
+
+    df_t = df_t.sort_values("dt")
+    bucket = f"{int(bucket_minutes)}min"
+    df_t["bucket"] = df_t["dt"].dt.floor(bucket)
+
+    g = df_t.groupby("bucket").agg(
+        posts=("sentiment", "count"),
+        neg_posts=("neg", "sum"),
+        risky_mentions=("risk_hit", "sum"),
+    ).reset_index()
+
+    # spike score: posts + negativity + risky terms
+    g["neg_rate"] = g["neg_posts"] / g["posts"].clip(lower=1)
+    g["spike_score"] = (g["posts"] * 0.6) + (g["neg_rate"] * 40) + (g["risky_mentions"] * 1.5)
+
+    # simple spike threshold: mean + sensitivity * std
+    mean = float(g["spike_score"].mean())
+    std = float(g["spike_score"].std() if g["spike_score"].size > 1 else 0.0)
+    threshold = mean + (spike_sensitivity / 2.5) * (std if std > 0 else 8.0)
+
+    g["is_spike"] = g["spike_score"] >= threshold
+    timeline_df = g
+
+    spike_flags = g[g["is_spike"]].tail(5).to_dict(orient="records")
+
+# ---------------- AUTO REPORT GENERATION ----------------
+def make_campaign_report():
+    topic_name = topic.strip() if topic.strip() else "Topic"
+    now_str = safe_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    top_kw = ", ".join([w for w, _ in top_keywords[:8]]) if top_keywords else "N/A"
+    top_risk_terms = ", ".join([w for w, _ in top_risky[:8]]) if top_risky else "None"
+
+    suspicious_accounts = [(u, s, c) for (u, s, c) in bot_scores if s >= 55][:5]
+    suspicious_line = ", ".join([f"@{u}({s}/100, {c} posts)" for u, s, c in suspicious_accounts]) if suspicious_accounts else "None"
+
+    cluster_line = f"{len(clusters)} cluster(s) detected" if clusters else "No clusters detected"
+    top_cluster_sample = ""
+    if clusters:
+        cl = clusters[0][:3]
+        samples = [rows[i]["text"] for i in cl]
+        top_cluster_sample = "\n- " + "\n- ".join(samples)
+
+    spike_line = "No timestamp data → timeline spikes not available."
+    if timeline_df is not None:
+        if spike_flags:
+            last_spike = spike_flags[-1]
+            spike_line = f"Spike detected around {last_spike['bucket']} (posts={last_spike['posts']}, neg_rate={last_spike['neg_rate']:.2f}, risky={last_spike['risky_mentions']})."
+        else:
+            spike_line = "No major spikes detected in the selected window."
+
+    level = "Low" if risk_score < 35 else ("Medium" if risk_score < 65 else "High")
+
+    report = f"""NEBULA — CAMPAIGN REPORT (DEMO)
+Generated: {now_str}
+
+Target Topic: {topic_name}
+Total Posts Analyzed: {len(rows)}
+Sentiment Split: +{pos_pct}% / ={neu_pct}% / -{neg_pct}%
+Overall Risk Score: {risk_score}/100 (Level: {level})
+
+Key Signals
+- Top Keywords: {top_kw}
+- Risky Terms: {top_risk_terms}
+- Coordination: {cluster_line}
+- Bot-score (behavioral): {suspicious_line}
+- Timeline: {spike_line}
+
+Top Coordination Samples (if any){top_cluster_sample}
+
+Recommended Response Actions (demo)
+1) Monitor spikes + keywords every 10–15 mins.
+2) Verify claims via official sources before replying.
+3) Publish a short factual clarification if negativity spikes.
+4) Flag suspicious coordinated content for internal review (platform moderation as per policy).
+
+Note: This report flags patterns and similarity, not real identity verification.
+"""
+    return report
 
 # ---------------- UI LAYOUT ----------------
 left, right = st.columns([1.15, 1.0], gap="large")
@@ -494,10 +581,10 @@ with left:
             unsafe_allow_html=True,
         )
         shown += 1
-        if shown >= 12:
+        if shown >= 10:
             break
 
-    # Download report
+    # Download full analysis report CSV
     df_out = pd.DataFrame([{
         "user": r["user"],
         "platform": r["platform"],
@@ -508,22 +595,50 @@ with left:
         "risky_terms": r["risky_terms"],
     } for r in rows])
 
-    st.markdown("### ⬇️ Download report")
-    st.download_button(
-        "Download CSV report",
-        df_out.to_csv(index=False).encode("utf-8"),
-        file_name="nebula_report.csv",
-        mime="text/csv",
-    )
+    st.markdown("### ⬇️ Downloads")
+    cdl1, cdl2 = st.columns(2)
+    with cdl1:
+        st.download_button(
+            "Download posts report CSV",
+            df_out.to_csv(index=False).encode("utf-8"),
+            file_name="nebula_posts_report.csv",
+            mime="text/csv",
+        )
+    with cdl2:
+        # bot-score export
+        bot_table = pd.DataFrame([(u, s, c) for (u, s, c) in bot_scores], columns=["user", "bot_score", "posts"])
+        st.download_button(
+            "Download bot-score CSV",
+            bot_table.to_csv(index=False).encode("utf-8"),
+            file_name="nebula_bot_scores.csv",
+            mime="text/csv",
+        )
 
 with right:
-    st.markdown("## 📊 Trend (demo)")
-    st.markdown('<span class="smallpill">Last 30 mins</span><span class="smallpill">Mock stream</span>', unsafe_allow_html=True)
-    random.seed((topic.strip() if topic.strip() else "nebula") + str(len(rows)) + str(risk_score))
-    base = max(10, min(90, risk_score))
-    points = [max(0, min(100, base + random.randint(-18, 18))) for _ in range(18)]
-    st.line_chart(points)
+    # Timeline
+    st.markdown("## ⏱ Campaign Timeline")
+    if timeline_df is None:
+        st.info("No valid timestamps found. Upload a CSV with a timestamp column (ISO format) to enable timeline spikes.")
+    else:
+        st.markdown(
+            f'<span class="smallpill">Bucket: {bucket_minutes} min</span>'
+            f'<span class="smallpill">Spike sensitivity: {spike_sensitivity}</span>',
+            unsafe_allow_html=True
+        )
+        show = timeline_df[["bucket", "posts", "neg_posts", "risky_mentions", "spike_score", "is_spike"]].copy()
+        st.dataframe(show.tail(12), use_container_width=True)
 
+        # Show trend charts
+        st.line_chart(timeline_df.set_index("bucket")[["posts", "neg_posts", "risky_mentions"]])
+
+        if spike_flags:
+            st.error("Spike(s) detected:")
+            for sflag in spike_flags[-3:]:
+                st.write(f"- {sflag['bucket']} | posts={sflag['posts']} | neg_rate={sflag['neg_rate']:.2f} | risky={sflag['risky_mentions']}")
+        else:
+            st.success("No major spikes detected in this window.")
+
+    # Insights
     st.write("")
     st.markdown("## 🧠 Insights")
     st.markdown(
@@ -545,40 +660,77 @@ with right:
         unsafe_allow_html=True,
     )
 
+    # Bot-score + clusters summary
     st.write("")
-    st.markdown("## 🤖 Bot-score (demo)")
-    top_suspicious = [(u,s,c) for (u,s,c) in bot_scores if s >= 55][:8]
-    if not top_suspicious:
-        st.success("No high bot-scores detected (demo).")
-    else:
+    st.markdown("## 🤖 Bot-score + Coordination")
+    suspicious_accounts = [(u, s, c) for (u, s, c) in bot_scores if s >= 55][:6]
+    if suspicious_accounts:
         st.warning("Suspicious accounts by behavior pattern (demo heuristic):")
-        table = pd.DataFrame(top_suspicious, columns=["user", "bot_score", "posts"])
-        st.dataframe(table, use_container_width=True)
-
-        st.download_button(
-            "Download bot-score list",
-            table.to_csv(index=False).encode("utf-8"),
-            file_name="nebula_bot_scores.csv",
-            mime="text/csv",
-        )
+        st.dataframe(pd.DataFrame(suspicious_accounts, columns=["user", "bot_score", "posts"]), use_container_width=True)
+    else:
+        st.success("No high bot-scores detected (demo).")
 
     st.write("")
-    st.markdown("## 🕸️ Coordination clusters (similar posts)")
+    st.markdown("### 🕸️ Coordination clusters")
     if not clusters:
-        st.info("No coordination clusters detected (with current threshold). Try lowering the threshold.")
+        st.info("No coordination clusters detected (try lowering similarity threshold).")
     else:
-        st.error(f"Detected {len(clusters)} suspicious clusters (demo).")
-        # show top 3 clusters
-        for idx, cl in enumerate(clusters[:3], start=1):
-            st.markdown(f"### Cluster {idx} — size {len(cl)}")
-            # show a few samples
-            sample_ids = cl[:5]
-            for k in sample_ids:
+        st.error(f"Detected {len(clusters)} cluster(s). Showing top 2:")
+        for idx, cl in enumerate(clusters[:2], start=1):
+            st.markdown(f"**Cluster {idx}** — size {len(cl)}")
+            for k in cl[:4]:
                 r = rows[k]
                 st.write(f"- @{r['user']} ({r['platform']}): {r['text']}")
-            st.markdown("---")
+
+# ---------------- AUTO REPORT + RESPONSE ACTIONS ----------------
+st.write("")
+st.markdown("## 📝 One-click Campaign Report (demo)")
+
+report_text = make_campaign_report()
+st.text_area("Generated report", value=report_text, height=320)
+
+st.download_button(
+    "Download report (.txt)",
+    report_text.encode("utf-8"),
+    file_name="nebula_campaign_report.txt",
+    mime="text/plain",
+)
+
+st.write("")
+st.markdown("## ✅ Response Actions (simulation)")
+
+colA, colB, colC = st.columns(3)
+
+with colA:
+    if st.button("📣 Draft PR Clarification"):
+        st.success("Draft created (demo).")
+        st.code(
+            f"""We’ve noticed increased discussion about {topic.strip() or "this topic"}. 
+We’re reviewing the claims and will share verified updates shortly. 
+Please rely on official channels for accurate information.""",
+            language="text",
+        )
+
+with colB:
+    if st.button("🛡️ Flag Coordinated Cluster"):
+        if clusters:
+            st.warning("Flagged top cluster for internal review (demo).")
+        else:
+            st.info("No clusters available to flag right now.")
+
+with colC:
+    if st.button("🎫 Create Incident Ticket"):
+        st.success("Ticket created (demo).")
+        st.write("Ticket summary:")
+        st.code(
+            f"""Title: Potential disinformation campaign ({topic.strip() or "Topic"})
+Risk Score: {risk_score}/100
+Signals: risky_terms={total_risky_mentions}, clusters={len(clusters)}, suspicious_accounts={len([x for x in bot_scores if x[1]>=55])}
+Next steps: monitor timeline spikes + verify claims + prepare response.""",
+            language="text",
+        )
 
 st.caption(
-    "Nebula v4 — demo heuristics for sentiment + risky terms + bot-score + coordination clusters. "
-    "This flags behavior patterns, not real identity verification."
+    "Nebula v5 — Demo heuristics for sentiment + risky terms + bot-score + coordination clusters + timeline spikes. "
+    "This flags patterns and similarity, not real identity verification."
 )
