@@ -1,252 +1,327 @@
-# ✅ Nebula v1 Stable Version
 import streamlit as st
 from textblob import TextBlob
 import random
+import time
 
-# ---------- PAGE ----------
+# =========================
+# PAGE CONFIG (ONLY ONCE!)
+# =========================
 st.set_page_config(
     page_title="Nebula — Sentiment & Disinformation Tracker",
     page_icon="🛰️",
-    layout="wide"
+    layout="wide",
 )
 
-# ---------- CSS ----------
-st.markdown("""
+# =========================
+# STYLES (UI polish)
+# =========================
+st.markdown(
+    """
 <style>
-/* Hide Streamlit footer/menu */
+/* Hide Streamlit chrome */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header {visibility: hidden;}
 
-:root{
-  --bg: #0b0f1a;
-  --card: rgba(255,255,255,0.06);
-  --card2: rgba(255,255,255,0.08);
-  --border: rgba(255,255,255,0.10);
-  --text: rgba(255,255,255,0.92);
-  --muted: rgba(255,255,255,0.65);
-  --green: #2dd4bf;
-  --red: #fb7185;
-  --amber:#fbbf24;
-  --blue:#60a5fa;
-}
-
+/* Background */
 .stApp {
-  background: radial-gradient(1200px 600px at 10% 10%, rgba(96,165,250,0.18), transparent 60%),
-              radial-gradient(900px 500px at 80% 20%, rgba(45,212,191,0.14), transparent 60%),
-              radial-gradient(700px 500px at 50% 90%, rgba(251,113,133,0.12), transparent 60%),
-              var(--bg);
-  color: var(--text);
+  background: radial-gradient(1200px 800px at 20% 10%, rgba(120, 170, 255, 0.10), transparent 55%),
+              radial-gradient(900px 600px at 70% 30%, rgba(200, 100, 255, 0.10), transparent 60%),
+              radial-gradient(900px 700px at 40% 90%, rgba(50, 220, 180, 0.10), transparent 55%),
+              #0b0f1a;
+  color: rgba(255,255,255,0.92);
 }
 
-.block-container {padding-top: 2rem; padding-bottom: 2rem;}
-
-.hero {
-  padding: 1.4rem 1.6rem;
-  border-radius: 20px;
-  background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
-  border: 1px solid var(--border);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-}
-
-.badge {
-  display: inline-block;
-  font-size: 0.85rem;
-  padding: .25rem .6rem;
-  border-radius: 999px;
-  background: rgba(96,165,250,0.14);
-  border: 1px solid rgba(96,165,250,0.25);
-  color: var(--muted);
-}
-
+/* Container cards */
 .card {
-  padding: 1.1rem 1.1rem;
-  border-radius: 18px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.25);
-}
-
-.card strong {color: var(--muted); font-weight: 600;}
-.big {
-  font-size: 2.2rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  margin-top: 0.2rem;
-}
-
-.subtle {color: var(--muted);}
-
-.alert-good{
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: rgba(45,212,191,0.12);
-  border: 1px solid rgba(45,212,191,0.22);
-}
-
-.alert-warn{
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: rgba(251,191,36,0.12);
-  border: 1px solid rgba(251,191,36,0.22);
-}
-
-.alert-bad{
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: rgba(251,113,133,0.12);
-  border: 1px solid rgba(251,113,133,0.22);
-}
-
-.divider {height: 1px; background: rgba(255,255,255,0.08); margin: 1.0rem 0;}
-
-.smallpill{
-  display:inline-block;
-  padding: .25rem .6rem;
-  border-radius: 999px;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
-  color: var(--muted);
-  font-size: .82rem;
-  margin-right: .4rem;
+  border-radius: 18px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.hero {
+  background: linear-gradient(120deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 22px;
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+
+.kpi-wrap {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.kpi {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 18px;
+  padding: 14px 16px;
+}
+
+.kpi .label {
+  font-size: 13px;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+
+.kpi .value {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.smallpill {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: 12px;
+  margin-right: 8px;
+  opacity: 0.9;
+}
+
+.alert-ok {
+  background: rgba(0, 200, 120, 0.15);
+  border: 1px solid rgba(0, 200, 120, 0.25);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.alert-warn {
+  background: rgba(255, 170, 0, 0.15);
+  border: 1px solid rgba(255, 170, 0, 0.25);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.alert-bad {
+  background: rgba(255, 70, 70, 0.15);
+  border: 1px solid rgba(255, 70, 70, 0.25);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+hr {
+  border: none;
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+  margin: 14px 0;
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# ---------- HELPERS ----------
-positive_templates = [
-    "Love the new update from {t} ✅",
-    "{t} is improving a lot lately 🔥",
-    "Great experience with {t} today 💯",
-    "{t} support was helpful 👍",
-]
-negative_templates = [
-    "Worst experience ever with {t} 😤",
-    "{t} service quality is terrible",
-    "I regret buying {t} 😑",
-    "{t} is a scam?? not sure 👀",
-]
-neutral_templates = [
-    "Mixed thoughts about {t}…",
-    "Not sure how I feel about {t}.",
-    "Seeing both good and bad about {t}.",
-]
+# =========================
+# HELPERS
+# =========================
+def safe_sentiment(text: str) -> float:
+    """Returns polarity in [-1, 1]."""
+    text = (text or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(TextBlob(text).sentiment.polarity)
+    except Exception:
+        return 0.0
 
-def analyze_sentiment(texts):
-    pos, neu, neg = 0, 0, 0
-    for s in texts:
-        p = TextBlob(s).sentiment.polarity
-        if p > 0.15:
-            pos += 1
-        elif p < -0.15:
-            neg += 1
-        else:
-            neu += 1
-    total = max(1, len(texts))
-    return round(pos*100/total), round(neu*100/total), round(neg*100/total)
 
-def risk_score(neg_pct, topic_len):
-    base = int(neg_pct * 0.9)
-    noise = random.randint(-6, 8)
-    topic_bonus = 4 if topic_len > 10 else 0
-    return max(0, min(100, base + noise + topic_bonus))
+def label_from_polarity(p: float) -> str:
+    if p > 0.10:
+        return "Positive"
+    if p < -0.10:
+        return "Negative"
+    return "Neutral"
 
-def alert_text(score):
-    if score <= 33:
-        return "Normal discussion activity ✅", "good"
-    elif score <= 66:
-        return "Elevated risk — monitor keywords & spikes ⚠️", "warn"
-    return "High risk — potential coordinated narrative 🚨", "bad"
 
-# ---------- UI ----------
-st.markdown("""
+def clamp(x, lo=0, hi=100):
+    return max(lo, min(hi, x))
+
+
+def risk_score(neg_pct: int, spike_sensitivity: int) -> int:
+    # Simple heuristic (demo)
+    base = neg_pct * 1.4
+    spike_boost = (spike_sensitivity - 5) * 3
+    return int(clamp(base + spike_boost, 0, 100))
+
+
+# =========================
+# SIDEBAR
+# =========================
+with st.sidebar:
+    st.markdown("## 🛰️ Nebula Controls")
+    mode = st.selectbox("Mode", ["Demo (Mock Stream)", "Manual Input"])
+    auto_refresh = st.toggle("Auto-refresh feed", value=True)
+
+    st.markdown("---")
+    st.markdown("### 🧩 Detection knobs (demo)")
+    spike_sensitivity = st.slider("Spike sensitivity", 1, 10, 6)
+    platforms = st.multiselect(
+        "Platforms",
+        ["X/Twitter", "Reddit", "YouTube", "News", "Instagram"],
+        default=["X/Twitter", "Reddit"],
+    )
+
+    st.markdown("---")
+    st.caption("Tip: If you change UI later, commit again with a new message ✅")
+
+
+# =========================
+# HEADER / HERO
+# =========================
+st.markdown(
+    """
 <div class="hero">
-  <div class="badge">AI-powered social monitoring (demo)</div>
-  <h1 style="margin:0.6rem 0 0.2rem 0; font-size: 3rem; line-height:1.05;">
-    🛰️ Nebula — Sentiment & Disinformation Tracker
-  </h1>
-  <div class="subtle" style="font-size:1.05rem;">
+  <div class="smallpill">AI-powered social monitoring (demo)</div>
+  <h1 style="margin: 10px 0 6px 0;">Nebula — Sentiment & Disinformation Tracker</h1>
+  <div style="opacity:0.85; font-size:15px;">
     Track public sentiment, detect narrative risk, and preview a live feed (mock stream).
   </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.write("")
+# =========================
+# TOP INPUT
+# =========================
+topic = st.text_input("🔎 Enter Brand / Person / Topic", placeholder="e.g., iPhone, H&M, Elections...")
+topic = topic.strip() if topic else ""
 
-left, right = st.columns([1.1, 0.9], gap="large")
+# =========================
+# DATA (Demo vs Manual)
+# =========================
+demo_pool = [
+    "Great experience with {t} today 💯",
+    "Love the new update from {t} ✅",
+    "{t} support was helpful 👍",
+    "Mixed thoughts about {t}...",
+    "Not sure how I feel about {t} 😐",
+    "Service quality is terrible",
+    "Worst experience ever",
+    "{t} is a scam?? not sure 👀",
+    "Price is too high for what you get",
+    "Could be better, honestly",
+]
+
+manual_text = ""
+if mode == "Manual Input":
+    manual_text = st.text_area(
+        "✍️ Paste text to analyze (one post / review / tweet)",
+        height=120,
+        placeholder="Paste any message here…",
+    )
+
+# generate feed
+def make_feed(t: str):
+    t = t if t else "this topic"
+    feed = []
+    random.seed(100 + len(t))
+    for _ in range(9):
+        msg = random.choice(demo_pool).format(t=t)
+        feed.append(msg)
+    return feed
+
+feed = make_feed(topic)
+
+# If manual input is present, inject it at the top
+if mode == "Manual Input" and manual_text.strip():
+    feed = [manual_text.strip()] + feed[:8]
+
+# sentiments
+polarities = [safe_sentiment(x) for x in feed]
+labels = [label_from_polarity(p) for p in polarities]
+
+pos = sum(1 for x in labels if x == "Positive")
+neu = sum(1 for x in labels if x == "Neutral")
+neg = sum(1 for x in labels if x == "Negative")
+total = max(1, len(labels))
+
+pos_pct = int(round(pos * 100 / total))
+neu_pct = int(round(neu * 100 / total))
+neg_pct = int(round(neg * 100 / total))
+risk = risk_score(neg_pct, spike_sensitivity)
+
+# =========================
+# LAYOUT (KPIs + Trend)
+# =========================
+left, right = st.columns([1.25, 1])
 
 with left:
-    topic = st.text_input("🔍 Enter Brand / Person / Topic", value="iPhone").strip()
-    if not topic:
-        topic = "Topic"
+    st.markdown(
+        f"""
+<div class="kpi-wrap">
+  <div class="kpi"><div class="label">Positive</div><div class="value">{pos_pct}%</div></div>
+  <div class="kpi"><div class="label">Neutral</div><div class="value">{neu_pct}%</div></div>
+  <div class="kpi"><div class="label">Negative</div><div class="value">{neg_pct}%</div></div>
+  <div class="kpi"><div class="label">Risk Score</div><div class="value">{risk}/100</div></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
-
-    # Create dynamic mock feed
-    random.seed(len(topic))
-    sample = []
-    for _ in range(3):
-        sample.append(random.choice(positive_templates).format(t=topic))
-    for _ in range(2):
-        sample.append(random.choice(neutral_templates).format(t=topic))
-    for _ in range(3):
-        sample.append(random.choice(negative_templates).format(t=topic))
-    random.shuffle(sample)
-
-    pos_pct, neu_pct, neg_pct = analyze_sentiment(sample)
-    score = risk_score(neg_pct, len(topic))
-    alert_msg, level = alert_text(score)
-
-    # METRICS ROW
-    c1, c2, c3, c4 = st.columns(4, gap="medium")
-    with c1:
-        st.markdown(f"<div class='card'><strong>Positive</strong><div class='big'>{pos_pct}%</div></div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"<div class='card'><strong>Neutral</strong><div class='big'>{neu_pct}%</div></div>", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"<div class='card'><strong>Negative</strong><div class='big'>{neg_pct}%</div></div>", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"<div class='card'><strong>Risk Score</strong><div class='big'>{score}/100</div></div>", unsafe_allow_html=True)
-
-    st.write("")
-    st.markdown("### 🚨 Alerts")
-
-    if level == "good":
-        st.markdown(f"<div class='alert-good'>{alert_msg}</div>", unsafe_allow_html=True)
-    elif level == "warn":
-        st.markdown(f"<div class='alert-warn'>{alert_msg}</div>", unsafe_allow_html=True)
+    st.markdown("## 🚨 Alerts")
+    if risk < 35:
+        st.markdown('<div class="alert-ok">Normal discussion activity ✅</div>', unsafe_allow_html=True)
+    elif risk < 70:
+        st.markdown(
+            '<div class="alert-warn">Elevated negativity detected ⚠️ (monitor closely)</div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown(f"<div class='alert-bad'>{alert_msg}</div>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="alert-bad">High risk detected 🔥 Possible coordinated narrative / spike</div>',
+            unsafe_allow_html=True,
+        )
 
-    st.write("")
-    st.markdown("### 🧾 Live Feed (mock)")
-    for line in sample[:8]:
-        tag = "Positive" if TextBlob(line).sentiment.polarity > 0.15 else ("Negative" if TextBlob(line).sentiment.polarity < -0.15 else "Neutral")
-        st.markdown(f"**{tag} →** {line}")
+    st.markdown("## 🧾 Live Feed (mock)")
+    for lab, msg in zip(labels, feed):
+        st.markdown(f"**{lab} →** {msg}")
 
 with right:
-    st.markdown("### 📊 Trend (demo)")
-    st.markdown("<span class='smallpill'>Last 30 mins</span><span class='smallpill'>Mock stream</span>", unsafe_allow_html=True)
+    st.markdown("## 📊 Trend (demo)")
+    st.markdown(
+        f'<span class="smallpill">Last 30 mins</span><span class="smallpill">{mode}</span>',
+        unsafe_allow_html=True,
+    )
 
-    # Fake trend data (but looks good)
-    random.seed(100 + len(topic))
-    points = [max(0, min(100, score + random.randint(-18, 18))) for _ in range(18)]
+    # Fake trend data (but stable)
+    random.seed(42 + len(topic))
+    points = []
+    score = risk
+    for _ in range(18):
+        score = clamp(score + random.randint(-18, 18), 0, 100)
+        points.append(score)
     st.line_chart(points)
 
-    st.write("")
-    st.markdown("### 🧠 Insights (demo)")
-    st.markdown("<div class='card'>"
-                "<div class='subtle'>Top talking points</div>"
-                f"<ul style='margin: 0.6rem 0 0 1.0rem; color: rgba(255,255,255,0.85);'>"
-                f"<li>{topic} update / experience</li>"
-                f"<li>Service & support</li>"
-                f"<li>Price / value</li>"
-                f"</ul>"
-                "</div>", unsafe_allow_html=True)
+    st.markdown("## 🧠 Insights (demo)")
+    t = topic if topic else "Topic"
+    st.markdown(
+        f"""
+<div class="card">
+  <div style="opacity:0.85; font-weight:700;">Top talking points</div>
+  <ul style="margin: 0.6rem 0 0 1.0rem; opacity:0.9;">
+    <li>{t} update / experience</li>
+    <li>Service & support</li>
+    <li>Price / value</li>
+  </ul>
+  <div style="opacity:0.6; font-size:12px; margin-top:10px;">
+    Platforms: {", ".join(platforms) if platforms else "None selected"}
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    st.write("")
-    st.markdown("### 🧩 Detection knobs (demo)")
-    with st.expander("Advanced (optional)", expanded=False):
-        st.slider("Spike sensitivity", 1, 10, 6)
-        st.multiselect("Platforms", ["X/Twitter", "Reddit", "YouTube", "News"], default=["X/Twitter", "Reddit"])
-        st.checkbox("Auto-refresh feed", value=True)
+# =========================
+# OPTIONAL: AUTO REFRESH
+# =========================
+if mode == "Demo (Mock Stream)" and auto_refresh:
+    # lightweight auto-refresh effect
+    time.sleep(0.4)
+    st.rerun()
