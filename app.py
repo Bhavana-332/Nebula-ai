@@ -209,13 +209,14 @@ demo_pool = [
     "Could be better, honestly",
 ]
 
-manual_text = ""
+manual_texts = []
 if mode == "Manual Input":
-    manual_text = st.text_area(
-        "✍️ Paste text to analyze (one post / review / tweet)",
-        height=120,
-        placeholder="Paste any message here…",
+    raw = st.text_area(
+        "✍️ Paste posts (one post per line)",
+        height=160,
+        placeholder="Example:\nI love this product\nWorst service ever\nNot bad but expensive",
     )
+    manual_texts = [line.strip() for line in raw.splitlines() if line.strip()]
 
 # generate feed
 def make_feed(t: str):
@@ -230,8 +231,8 @@ def make_feed(t: str):
 feed = make_feed(topic)
 
 # If manual input is present, inject it at the top
-if mode == "Manual Input" and manual_text.strip():
-    feed = [manual_text.strip()] + feed[:8]
+if mode == "Manual Input" and manual_texts:
+    feed = manual_texts
 
 # sentiments
 polarities = [safe_sentiment(x) for x in feed]
