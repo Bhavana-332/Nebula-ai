@@ -2,3 +2,5 @@ streamlit
 textblob
 nltk
 pandas
+praw
+streamlit-autorefresh
